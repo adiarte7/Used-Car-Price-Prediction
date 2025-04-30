@@ -74,7 +74,7 @@ The trained model (`car_price_model.rds`) is loaded into the app and used to mak
 
 ## Deployment
 
-The app is deployed on [shinyapps.io]([https://www.shinyapps.io/](https://aditya-arte.shinyapps.io/submission/))
+The app is deployed on [shinyapps.io](https://aditya-arte.shinyapps.io/submission/)
 
 ---
 
