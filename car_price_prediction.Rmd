@@ -1,0 +1,392 @@
+---
+title: "Car prices analysis and predictive modeling"
+author: "Aditya Arte"
+date: "2025-02-13"
+output:
+  word_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Load Data and Libraries
+
+Files were saved locally, therefore please change file path.
+
+```{r load data}
+
+# Kaggle dataset link
+# https://www.kaggle.com/datasets/asinow/car-price-dataset/data
+
+# Set the working directory - Change this to where you have saved the data
+setwd("C:\\Users\\adity\\OneDrive\\Desktop\\Hult Courses\\MBAN\\Visualizing & Analyzing Data in R\\A2\\Submission")
+
+# Specify file path - Change this to where you have save the csv file
+path <- "C:\\Users\\adity\\OneDrive\\Desktop\\Hult Courses\\MBAN\\Visualizing & Analyzing Data in R\\A2\\Submission\\car_price_dataset.csv"
+
+# Read the data file
+car_data <- read.csv(path)
+
+# Install/Load necessary libraries
+#install.packages("tidyverse") 
+#install.packages("corrplot")
+#install.packages("caret")
+#install.packages("shiny")
+install.packages('rsconnect')
+library(tidyverse)
+library(corrplot)
+library(caret)
+library(shiny)
+
+```
+
+# EDA
+
+```{r Check the structure of the dataset}
+
+# Check data structure
+str(car_data)
+
+```
+The data set has 10 columns, 6 of them are numerical, the other 4 are categorical
+
+```{r Summary statistics}
+
+# Check dataset summary
+summary(car_data)
+```
+```{r First few rows}
+
+# Check dataset head
+head(car_data)
+```
+
+``` {r NA check}
+
+# Check for nulls
+colSums(is.na(car_data))
+```
+There are no null values in any of the columns
+
+```{r Duplicates check}
+
+# Check for duplicates
+sum(duplicated(car_data))
+```
+There are no duplicates in the data set.
+Based on this, there is no need to clean the data.
+
+# Visualizations
+
+``` {r Distribution of Car Prices}
+
+#Visualize the distribution of car prices as a histogram
+ggplot(car_data, aes(x = Price)) +
+  geom_histogram(binwidth = 1000, fill = "blue", alpha = 0.7) +
+  labs(title = "Distribution of Car Prices", x = "Price", y = "Count")
+```
+The car prices seem to be normally distributed.However it is slightly skewed to the right, meaning there are fewer high-priced cars rather than low-priced cars.
+
+``` {r Distribution of Car Mileage}
+
+#Visualize the distribution of car mileage as a histogram
+ggplot(car_data, aes(x = Mileage)) +
+  geom_histogram(binwidth = 1000, fill = "blue", alpha = 0.7) +
+  labs(title = "Distribution of Car Mileage", x = "Mileage", y = "Count")
+```
+The mileage is not normally distributed, it seems random.
+
+``` {r Car Price Distribution by Fuel Type}
+
+#Visualize the distribution of car fuel type as a histogram
+ggplot(car_data, aes(x = Fuel_Type, y = Price, fill = Fuel_Type)) +
+  geom_boxplot() +
+  labs(title = "Car Price by Fuel Type", x = "Fuel Type", y = "Price")
+```
+From this boxplot, the prices for each fuel type seem to be normally distributed. An interesting fact to note is that prices for Electric and Hybrid vehicles seem to be higher than those for Diesel and Petrol cars.
+
+``` {r Average car price for each fuel type}
+
+# Visualize the average price of cars based on fuel type
+car_data %>%
+  group_by(Fuel_Type) %>%
+  summarise(Average_Price = mean(Price, na.rm = TRUE)) %>%
+  ggplot(aes(x = reorder(Fuel_Type, -Average_Price), y = Average_Price, fill = Fuel_Type)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Average Car Price by Fuel Type", x = "Fuel Type", y = "Average Price") +
+  theme_minimal()
+```
+The result of the previous boxplot has been confirmed by this bar chart. Indeed,
+Electric and Hybrid cars have a higher average price compare to Diesel and Petrol cars.
+``` {r Print average price by transmission}
+
+# Check values of each average price
+car_data %>%
+  group_by(Fuel_Type) %>%
+  summarise(Average_Price = mean(Price, na.rm = TRUE))
+```
+
+``` {r Transmission vs Price}
+
+# Visualize price of cars based on transmission 
+ggplot(car_data, aes(x = Transmission, y = Price, fill = Transmission)) +
+  geom_boxplot() +
+  labs(title = "Car Price by Transmission Type", x = "Transmission", y = "Price") +
+  theme_minimal()
+```
+
+Similar to fuel type, the prices based on type of transmission seem normally distributed within the three categories. However, Automatic cars seem to have higher prices compare to Manual and Semi-Automatic.
+
+``` {r Average car price for Transmission}
+
+# Visualize the average price of cars based on transmission 
+car_data %>%
+  group_by(Transmission) %>%
+  summarise(Average_Price = mean(Price, na.rm = TRUE)) %>%
+  ggplot(aes(x = Transmission, y = Average_Price, fill = Transmission)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Average Car Price by Transmission", x = "Transmission", y = "Average Price")
+```
+``` {r Print average price by transmission}
+
+# Check values of each average price
+car_data %>%
+  group_by(Transmission) %>%
+  summarise(Average_Price = mean(Price, na.rm = TRUE))
+```
+  
+The result of the previous boxplot has been confirmed by this bar chart. Indeed,
+Automatic cars have a higher average price compare to Manual and Semi-Automatic cars.
+
+``` {r Price vs Mileage}
+
+# Visualize the relationship between car price and mileage
+ggplot(car_data, aes(x = Mileage, y = Price)) +
+  geom_point(alpha = 0.5, color = "black") +
+  geom_smooth(method = "lm", color = "red") +
+  labs(title = "Car Price vs Mileage", x = "Mileage", y = "Price") +
+  theme_minimal()
+```
+The graph shows a negative correlation between the mileage of cars and their prices,
+meaning that cars with higher prices tend to have lower prices.
+
+``` {r Price vs Engine Size}
+
+# Visualize the relationship between car price and mileage
+ggplot(car_data, aes(x = Engine_Size, y = Price)) +
+  geom_point(alpha = 0.5, color = "black") +
+  geom_smooth(method = "lm", color = "red") +
+  labs(title = "Car Price vs Engine Size", x = "Engine Size", y = "Price") +
+  theme_minimal()
+```
+The graph shows that cars with larger engines tend to have higher prices (positive
+correlation between engine size and prices).
+
+However, all these scatter plots, have a lot of noise, so the correlation might look
+weak. However, there are other non-numerical variables that could explain the noise.
+
+```{r Mileage vs Price in function of Fuel type and Transmissions}
+
+# Visualize the relationship between mileage and price using fuel type as color and transmission as shape of each data point
+ggplot(car_data, aes(x = Mileage, y = Price, shape = factor(Transmission), color = Fuel_Type)) +
+  geom_point(alpha = 0.6, size = 2) +
+  scale_shape_manual(values = c("Manual" = 20, "Automatic" = 4, "Semi-Automatic" = 17)) + 
+  scale_x_continuous(breaks = seq(0, max(car_data$Mileage), 25000)) +
+  scale_y_continuous(breaks = seq(0, max(car_data$Price), 5000)) +
+  guides(x = guide_axis(n.dodge = 2)) +
+  theme_bw() +
+  ggtitle("Mileage vs Price in function of Fuel type and Transmissions") +
+  labs(x = "Mileage", y = "Price", shape = "Transmission Type", color = "Fuel Type")
+```
+This graph can explain the aforementioned noise. As previously identified, Electric and Hybrid cars (green and blue dots) tend to be more expensive than Diesel (red) and Petrol
+(purple) cars. Moreover, Automatic cars (X) tend to be more expensive then manual
+(dots) and semiautomatic (triangles) cars.
+
+``` {r Mileage vs Price in function of Manufacturing year}
+
+# Visualize the relationship between mileage and price using manufacturing year as color of each datapoint
+ggplot(car_data, aes(x = Mileage, y = Price, color = Year)) +
+  geom_point(alpha = 0.6, size = 2) +
+  scale_x_continuous(breaks = seq(0, max(car_data$Mileage), 25000)) +
+  scale_y_continuous(breaks = seq(0, max(car_data$Price), 5000)) +
+  guides(x = guide_axis(n.dodge = 2)) +
+  theme_bw() +
+  ggtitle("Mileage vs Price in function of Model Manufacturing Year") +
+  labs(x = "Mileage", y = "Price", color = "Year")
+```
+Also this graph shows an explanation of the noise. Older cars (dark blue) tend to
+have lower prices then younger cars (light blue)
+
+``` {r Preparing categorical data for correlation analysis}
+
+categorical_data <- car_data
+
+# Convert categorical variables to factors
+categorical_data$Fuel_Type <- as.factor(categorical_data$Fuel_Type)
+categorical_data$Transmission <- as.factor(categorical_data$Transmission)
+categorical_data$Brand <- as.factor(categorical_data$Brand)
+categorical_data$Model <- as.factor(categorical_data$Model)
+
+# Encode categorical variables numerically using Label Encoding
+categorical_data$Fuel_Type_Num <- as.numeric(categorical_data$Fuel_Type)
+categorical_data$Transmission_Num <- as.numeric(categorical_data$Transmission)
+categorical_data$Brand_Num <- as.numeric(categorical_data$Brand)
+categorical_data$Model_Num <- as.numeric(categorical_data$Model)
+```
+
+``` {r Calculate correlations}
+
+# Select only numeric columns for correlation analysis
+numeric_data <- categorical_data %>%
+  select(Price, Year, Engine_Size, Mileage, Fuel_Type_Num, Transmission_Num, Brand_Num, Model_Num)
+
+# Compute correlation matrix
+cor_matrix_cat <- cor(numeric_data, use = "complete.obs")
+
+# Display correlation matrix as heatmap
+corrplot(cor_matrix_cat, method = "color", type = "upper", addCoef.col = "darkgrey", tl.col = "black", tl.srt = 45)
+```
+## Correlation Matrix Explanation
+
+This correlation heat map shows the correlation with the different variables in the data set. For the purpose of the analysis, the correlations of interests are only the ones between price and the other variables.
+
+As previously identified, the price of cars is strongly correlated with year(positive), engine size(positive), and mileage(negative). Weaker correlation as been founded with the Fuel Type and Transmissions. Despite some variables having low correlation, all features will be included in the machine learning algorithm to enhance accuracy and minimize bias. Incorporating a larger  set of features can improve the model’s predictive power by capturing additional patterns that may not be evident individually.
+
+# Machine Learning Model
+
+``` {r linear regression model to predict car price}
+
+# Select relevant columns for the model
+car_data <- car_data %>%
+  select(Model, Year, Engine_Size, Fuel_Type, Transmission, Mileage, Price)
+
+# Encode required columns as a factor (categorical variable)
+car_data$Model <- as.factor(car_data$Model)
+car_data$Fuel_Type <- as.factor(car_data$Fuel_Type)
+car_data$Transmission <- as.factor(car_data$Transmission)
+
+# Split the data into training and testing sets (80% train, 20% test)
+set.seed(123)  # For reproducibility
+train_index <- createDataPartition(car_data$Price, p = 0.8, list = FALSE)
+train_data <- car_data[train_index, ]
+test_data <- car_data[-train_index, ]
+
+# Train a linear regression model
+model <- train(
+  Price ~ Model + Year + Engine_Size + Fuel_Type + Transmission + Mileage,  # Formula
+  data = train_data,
+  method = "lm",  # Linear regression
+  trControl = trainControl(method = "cv", number = 10)  # 10-fold cross-validation
+)
+
+# Print the model summary
+print(summary(model$finalModel))
+
+# Predict car prices on the test data
+predictions <- predict(model, newdata = test_data)
+
+# Evaluate the model performance
+MAE <- mean(abs(predictions - test_data$Price))  # Mean Absolute Error
+RMSE <- sqrt(mean((predictions - test_data$Price)^2))  # Root Mean Squared Error
+R2 <- cor(test_data$Price, predictions)^2  # R-squared
+
+cat("Model Evaluation Metrics:\n")
+cat("Mean Absolute Error (MAE):", MAE, "\n")
+cat("Root Mean Squared Error (RMSE):", RMSE, "\n")
+cat("R-squared (R2):", R2, "\n")
+
+# Save the model for future use
+saveRDS(model, "car_price_model.rds")
+
+```
+
+## Model Explanation
+
+A linear regression model was built to predict car prices based on **Model**, **Year**, **Fuel Type**, **Transmission**, **Engine Size**, and **Mileage**. The dataset was split into training (80%) and testing (20%) sets, with **10-fold cross-validation** used during training.
+
+Key results include:
+- **Adjusted R²**: 0.9991 (model explains ~99.91% of price variance).
+- **MAE**: 20.83 (average prediction error of $20.83).
+- **RMSE**: 54.84 (typical error magnitude).
+- **R²**: 0.9997 (on test data).
+
+Significant predictors: **Year**, **Engine Size**, **Fuel Type**, **Transmission**, and **Mileage**. The model demonstrated exceptional performance, as shown by its very high R-squared and low prediction errors. The model was saved as an RDS file for future use.
+
+# Car Price Prediction Tool
+
+```{r shiny app}
+# Authorize shinyapps.io
+rsconnect::setAccountInfo(name='aditya-arte', token='F8DD1995E5DDDD50F2F24936B4D4FCFA', secret='liH3TTaZacSh++83ekeDELDtUIJZXHvLNckkMc0K')
+
+# Load the pre-trained model
+model <- readRDS("car_price_model.rds")
+
+# Get unique Model values for categorical variable dropdowns
+unique_models <- unique(car_data$Model)
+unique_fuel_type <- unique(car_data$Fuel_Type)
+unique_transmission <- unique(car_data$Transmission)
+
+# Define UI for the app
+ui <- fluidPage(
+  titlePanel("Car Price Predictor"),
+  sidebarLayout(
+    sidebarPanel(
+      selectInput("model", "Car Model:", choices = unique_models),  # Dynamic dropdown for car models
+      selectInput("fuel_type", "Fuel Type:", choices = unique_fuel_type),
+      selectInput("transmission", "Transmission:", choices = unique_transmission),
+      numericInput("engine_size", "Engine Size:", 1, min = 1, max = 5),
+      numericInput("year", "Manufacturing Year:", 2023, min = 2000, max = 2023),
+      numericInput("mileage", "Mileage (in km):", 10000, min = 0, step = 10000),
+      actionButton("predict", "Predict Price")
+    ),
+    mainPanel(
+      h3("Predicted Price:"),
+      
+      verbatimTextOutput("prediction")
+    )
+  )
+)
+
+# Define server logic
+server <- function(input, output) {
+  prediction <- eventReactive(input$predict, {
+    # Create a new data frame with user inputs
+    new_data <- data.frame(
+      Model = as.factor(input$model),
+      Year = input$year,
+      Fuel_Type = input$fuel_type,
+      Transmission = input$transmission,
+      Engine_Size = input$engine_size,
+      Mileage = input$mileage
+    )
+    
+    # Predict the price using the loaded model
+    predict(model, new_data)
+  })
+  
+  output$prediction <- renderText({
+  req(prediction())  # Ensure prediction is made
+  formatted_prediction <- formatC(round(prediction(), 2), format = "f", big.mark = ",", digits = 2)
+  paste0("$", formatted_prediction)  # Format as USD
+})
+
+}
+
+# Run the app
+shinyApp(ui = ui, server = server)
+
+# Deploy the app
+library(rsconnect)
+    rsconnect::deployApp('.')
+
+```
+## Shiny App
+
+This Shiny application provides an interactive interface for predicting car prices based on user input. The app uses the pre-trained linear regression model and allows users to specify:
+
+- **Car Model**, **Fuel Type**, and **Transmission** (via dropdown menus)
+- **Engine Size**, **Manufacturing Year**, and **Mileage** (via numeric inputs)
+
+When the "Predict Price" button is clicked, the app generates a prediction of the price of a car using the user inputs and displays the result in a dollar value. The app dynamically retrieves the unique values for car models from the dataset, ensuring a seamless and accurate user experience.
