@@ -1,0 +1,539 @@
+---
+title: "Used Car Price Prediction: Analysis & Modeling"
+author: "Aditya Arte"
+date: "2025-02-13"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    theme: flatly
+    highlight: tango
+    code_folding: show
+    fig_width: 10
+    fig_height: 6
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  fig.align = "center"
+)
+```
+
+# 1. Introduction
+
+This project analyzes a dataset of 10,000 used car listings to build a predictive model
+for car prices. The goal is to understand which factors most influence used car pricing
+and to develop an accurate, deployable prediction tool.
+
+**Dataset:** [Kaggle - Car Price Dataset](https://www.kaggle.com/datasets/asinow/car-price-dataset/data)
+
+# 2. Setup & Data Loading
+
+```{r load-libraries}
+library(tidyverse)
+library(corrplot)
+library(caret)
+library(scales)
+library(gridExtra)
+```
+
+```{r load-data}
+car_data <- read.csv("car_price_dataset.csv")
+```
+
+# 3. Exploratory Data Analysis
+
+## 3.1 Data Overview
+
+```{r data-structure}
+str(car_data)
+```
+
+```{r data-summary}
+summary(car_data)
+```
+
+```{r data-head}
+head(car_data, 10)
+```
+
+## 3.2 Data Quality
+
+```{r null-check}
+cat("Missing values per column:\n")
+colSums(is.na(car_data))
+```
+
+```{r duplicate-check}
+cat("Number of duplicate rows:", sum(duplicated(car_data)), "\n")
+```
+
+```{r unique-counts}
+cat("Unique values per categorical column:\n")
+cat("  Brands:", n_distinct(car_data$Brand), "\n")
+cat("  Models:", n_distinct(car_data$Model), "\n")
+cat("  Fuel Types:", n_distinct(car_data$Fuel_Type), "\n")
+cat("  Transmissions:", n_distinct(car_data$Transmission), "\n")
+cat("  Door configs:", n_distinct(car_data$Doors), "\n")
+cat("  Owner counts:", n_distinct(car_data$Owner_Count), "\n")
+```
+
+The dataset is clean with no missing values or duplicates. This is consistent with a
+well-curated dataset.
+
+## 3.3 Target Variable: Price Distribution
+
+```{r price-distribution, fig.height=5}
+p1 <- ggplot(car_data, aes(x = Price)) +
+  geom_histogram(binwidth = 1000, fill = "#2c3e50", alpha = 0.8, color = "white") +
+  geom_vline(aes(xintercept = mean(Price)), color = "#e74c3c", linetype = "dashed", size = 1) +
+  annotate("text", x = mean(car_data$Price) + 2000, y = Inf, vjust = 2,
+           label = paste("Mean:", dollar(mean(car_data$Price))),
+           color = "#e74c3c", fontface = "bold") +
+  labs(title = "Distribution of Car Prices",
+       subtitle = "Red dashed line indicates the mean price",
+       x = "Price ($)", y = "Count") +
+  scale_x_continuous(labels = dollar) +
+  theme_minimal(base_size = 13)
+
+p2 <- ggplot(car_data, aes(x = Price)) +
+  geom_density(fill = "#3498db", alpha = 0.5) +
+  labs(title = "Price Density", x = "Price ($)", y = "Density") +
+  scale_x_continuous(labels = dollar) +
+  theme_minimal(base_size = 13)
+
+grid.arrange(p1, p2, ncol = 2)
+```
+
+Prices are approximately normally distributed with a slight right skew, indicating a
+small number of higher-priced vehicles.
+
+## 3.4 Numerical Features
+
+```{r numerical-distributions, fig.height=8}
+p_year <- ggplot(car_data, aes(x = Year)) +
+  geom_histogram(binwidth = 1, fill = "#1abc9c", alpha = 0.8, color = "white") +
+  labs(title = "Manufacturing Year", x = "Year", y = "Count") +
+  theme_minimal(base_size = 12)
+
+p_engine <- ggplot(car_data, aes(x = Engine_Size)) +
+  geom_histogram(binwidth = 0.2, fill = "#9b59b6", alpha = 0.8, color = "white") +
+  labs(title = "Engine Size", x = "Engine Size (L)", y = "Count") +
+  theme_minimal(base_size = 12)
+
+p_mileage <- ggplot(car_data, aes(x = Mileage)) +
+  geom_histogram(binwidth = 10000, fill = "#e67e22", alpha = 0.8, color = "white") +
+  labs(title = "Mileage", x = "Mileage (km)", y = "Count") +
+  scale_x_continuous(labels = comma) +
+  theme_minimal(base_size = 12)
+
+p_owners <- ggplot(car_data, aes(x = factor(Owner_Count))) +
+  geom_bar(fill = "#e74c3c", alpha = 0.8) +
+  labs(title = "Owner Count", x = "Number of Previous Owners", y = "Count") +
+  theme_minimal(base_size = 12)
+
+grid.arrange(p_year, p_engine, p_mileage, p_owners, ncol = 2)
+```
+
+## 3.5 Categorical Features vs Price
+
+```{r fuel-type-analysis, fig.height=5}
+fuel_summary <- car_data %>%
+  group_by(Fuel_Type) %>%
+  summarise(
+    Avg_Price = mean(Price),
+    Median_Price = median(Price),
+    Count = n(),
+    .groups = "drop"
+  ) %>%
+  arrange(desc(Avg_Price))
+
+p1 <- ggplot(car_data, aes(x = reorder(Fuel_Type, Price, FUN = median), y = Price, fill = Fuel_Type)) +
+  geom_boxplot(alpha = 0.7, outlier.alpha = 0.3) +
+  labs(title = "Price Distribution by Fuel Type", x = "Fuel Type", y = "Price ($)") +
+  scale_y_continuous(labels = dollar) +
+  scale_fill_brewer(palette = "Set2") +
+  theme_minimal(base_size = 13) +
+  theme(legend.position = "none")
+
+p2 <- ggplot(fuel_summary, aes(x = reorder(Fuel_Type, -Avg_Price), y = Avg_Price, fill = Fuel_Type)) +
+  geom_col(alpha = 0.8) +
+  geom_text(aes(label = dollar(round(Avg_Price))), vjust = -0.5, size = 3.5) +
+  labs(title = "Average Price by Fuel Type", x = "Fuel Type", y = "Average Price ($)") +
+  scale_y_continuous(labels = dollar) +
+  scale_fill_brewer(palette = "Set2") +
+  theme_minimal(base_size = 13) +
+  theme(legend.position = "none")
+
+grid.arrange(p1, p2, ncol = 2)
+```
+
+Electric and Hybrid vehicles command higher average prices than Diesel and Petrol cars.
+
+```{r transmission-analysis, fig.height=5}
+trans_summary <- car_data %>%
+  group_by(Transmission) %>%
+  summarise(
+    Avg_Price = mean(Price),
+    Median_Price = median(Price),
+    Count = n(),
+    .groups = "drop"
+  )
+
+p1 <- ggplot(car_data, aes(x = reorder(Transmission, Price, FUN = median), y = Price, fill = Transmission)) +
+  geom_boxplot(alpha = 0.7, outlier.alpha = 0.3) +
+  labs(title = "Price by Transmission Type", x = "Transmission", y = "Price ($)") +
+  scale_y_continuous(labels = dollar) +
+  scale_fill_brewer(palette = "Pastel1") +
+  theme_minimal(base_size = 13) +
+  theme(legend.position = "none")
+
+p2 <- ggplot(trans_summary, aes(x = reorder(Transmission, -Avg_Price), y = Avg_Price, fill = Transmission)) +
+  geom_col(alpha = 0.8) +
+  geom_text(aes(label = dollar(round(Avg_Price))), vjust = -0.5, size = 3.5) +
+  labs(title = "Average Price by Transmission", x = "Transmission", y = "Average Price ($)") +
+  scale_y_continuous(labels = dollar) +
+  scale_fill_brewer(palette = "Pastel1") +
+  theme_minimal(base_size = 13) +
+  theme(legend.position = "none")
+
+grid.arrange(p1, p2, ncol = 2)
+```
+
+Automatic vehicles tend to be priced higher than Manual and Semi-Automatic.
+
+```{r brand-analysis, fig.height=6}
+brand_summary <- car_data %>%
+  group_by(Brand) %>%
+  summarise(
+    Avg_Price = mean(Price),
+    Median_Price = median(Price),
+    Count = n(),
+    .groups = "drop"
+  ) %>%
+  arrange(desc(Avg_Price))
+
+ggplot(brand_summary, aes(x = reorder(Brand, Avg_Price), y = Avg_Price, fill = Avg_Price)) +
+  geom_col(alpha = 0.85) +
+  geom_text(aes(label = dollar(round(Avg_Price))), hjust = -0.1, size = 3.2) +
+  coord_flip() +
+  labs(title = "Average Price by Brand",
+       subtitle = "Higher-end brands command premium prices",
+       x = "Brand", y = "Average Price ($)") +
+  scale_y_continuous(labels = dollar, expand = expansion(mult = c(0, 0.15))) +
+  scale_fill_gradient(low = "#3498db", high = "#e74c3c") +
+  theme_minimal(base_size = 13) +
+  theme(legend.position = "none")
+```
+
+## 3.6 Key Relationships with Price
+
+```{r scatter-plots, fig.height=10}
+p1 <- ggplot(car_data, aes(x = Year, y = Price)) +
+  geom_point(alpha = 0.15, color = "#2c3e50") +
+  geom_smooth(method = "lm", color = "#e74c3c", se = TRUE) +
+  labs(title = "Price vs Manufacturing Year", x = "Year", y = "Price ($)") +
+  scale_y_continuous(labels = dollar) +
+  theme_minimal(base_size = 12)
+
+p2 <- ggplot(car_data, aes(x = Engine_Size, y = Price)) +
+  geom_point(alpha = 0.15, color = "#2c3e50") +
+  geom_smooth(method = "lm", color = "#e74c3c", se = TRUE) +
+  labs(title = "Price vs Engine Size", x = "Engine Size (L)", y = "Price ($)") +
+  scale_y_continuous(labels = dollar) +
+  theme_minimal(base_size = 12)
+
+p3 <- ggplot(car_data, aes(x = Mileage, y = Price)) +
+  geom_point(alpha = 0.15, color = "#2c3e50") +
+  geom_smooth(method = "lm", color = "#e74c3c", se = TRUE) +
+  labs(title = "Price vs Mileage", x = "Mileage (km)", y = "Price ($)") +
+  scale_x_continuous(labels = comma) +
+  scale_y_continuous(labels = dollar) +
+  theme_minimal(base_size = 12)
+
+p4 <- ggplot(car_data, aes(x = Owner_Count, y = Price)) +
+  geom_point(alpha = 0.15, color = "#2c3e50", position = position_jitter(width = 0.2)) +
+  geom_smooth(method = "lm", color = "#e74c3c", se = TRUE) +
+  labs(title = "Price vs Owner Count", x = "Number of Owners", y = "Price ($)") +
+  scale_y_continuous(labels = dollar) +
+  theme_minimal(base_size = 12)
+
+grid.arrange(p1, p2, p3, p4, ncol = 2)
+```
+
+Key observations:
+
+- **Year** has a strong positive correlation — newer cars are more expensive
+- **Engine Size** shows a positive correlation — larger engines cost more
+- **Mileage** has a negative correlation — higher mileage reduces value
+- **Owner Count** shows minimal impact on price
+
+## 3.7 Multi-Variable Visualization
+
+```{r multi-variable, fig.height=7}
+ggplot(car_data, aes(x = Mileage, y = Price, color = Fuel_Type, shape = Transmission)) +
+  geom_point(alpha = 0.5, size = 2) +
+  scale_shape_manual(values = c("Manual" = 16, "Automatic" = 4, "Semi-Automatic" = 17)) +
+  scale_x_continuous(labels = comma) +
+  scale_y_continuous(labels = dollar) +
+  labs(title = "Price vs Mileage by Fuel Type & Transmission",
+       subtitle = "Electric/Hybrid vehicles (green/blue) cluster at higher prices",
+       x = "Mileage (km)", y = "Price ($)",
+       color = "Fuel Type", shape = "Transmission") +
+  theme_minimal(base_size = 13)
+```
+
+```{r year-color, fig.height=6}
+ggplot(car_data, aes(x = Mileage, y = Price, color = Year)) +
+  geom_point(alpha = 0.5, size = 1.5) +
+  scale_color_viridis_c(option = "plasma") +
+  scale_x_continuous(labels = comma) +
+  scale_y_continuous(labels = dollar) +
+  labs(title = "Price vs Mileage Colored by Manufacturing Year",
+       subtitle = "Newer vehicles (lighter colors) cluster at higher prices",
+       x = "Mileage (km)", y = "Price ($)", color = "Year") +
+  theme_minimal(base_size = 13)
+```
+
+## 3.8 Correlation Analysis
+
+```{r correlation-matrix, fig.height=7}
+# Encode categorical variables numerically for correlation
+encoded_data <- car_data %>%
+  mutate(
+    Fuel_Type_Num = as.numeric(as.factor(Fuel_Type)),
+    Transmission_Num = as.numeric(as.factor(Transmission)),
+    Brand_Num = as.numeric(as.factor(Brand)),
+    Model_Num = as.numeric(as.factor(Model))
+  )
+
+numeric_cols <- encoded_data %>%
+  select(Price, Year, Engine_Size, Mileage, Doors, Owner_Count,
+         Fuel_Type_Num, Transmission_Num, Brand_Num, Model_Num)
+
+cor_matrix <- cor(numeric_cols, use = "complete.obs")
+
+corrplot(cor_matrix, method = "color", type = "upper",
+         addCoef.col = "black", number.cex = 0.7,
+         tl.col = "black", tl.srt = 45,
+         col = colorRampPalette(c("#3498db", "white", "#e74c3c"))(200),
+         title = "Feature Correlation Matrix",
+         mar = c(0, 0, 2, 0))
+```
+
+**Key correlations with Price:**
+
+- **Year** (+): Newer cars cost more
+- **Engine Size** (+): Larger engines cost more
+- **Mileage** (−): Higher mileage reduces price
+- **Fuel Type** and **Transmission** show weaker but meaningful correlations
+
+# 4. Feature Engineering
+
+```{r feature-engineering}
+# Calculate car age instead of using raw year
+car_data$Car_Age <- max(car_data$Year) - car_data$Year
+
+# Price per unit of engine size (for analysis only)
+car_data$Price_Per_Liter <- car_data$Price / car_data$Engine_Size
+
+cat("New features created:\n")
+cat("  Car_Age: ranges from", min(car_data$Car_Age), "to", max(car_data$Car_Age), "years\n")
+```
+
+# 5. Model Building
+
+## 5.1 Data Preparation
+
+```{r data-prep}
+# Select features for modeling — include ALL available features
+model_data <- car_data %>%
+  select(Brand, Model, Year, Engine_Size, Fuel_Type, Transmission,
+         Mileage, Doors, Owner_Count, Price)
+
+# Encode categorical variables as factors
+model_data$Brand <- as.factor(model_data$Brand)
+model_data$Model <- as.factor(model_data$Model)
+model_data$Fuel_Type <- as.factor(model_data$Fuel_Type)
+model_data$Transmission <- as.factor(model_data$Transmission)
+
+# Train-test split (80/20)
+set.seed(123)
+train_index <- createDataPartition(model_data$Price, p = 0.8, list = FALSE)
+train_data <- model_data[train_index, ]
+test_data <- model_data[-train_index, ]
+
+cat("Training set:", nrow(train_data), "rows\n")
+cat("Test set:", nrow(test_data), "rows\n")
+```
+
+## 5.2 Linear Regression
+
+```{r linear-regression}
+lm_model <- train(
+  Price ~ Brand + Model + Year + Engine_Size + Fuel_Type + Transmission + Mileage + Doors + Owner_Count,
+  data = train_data,
+  method = "lm",
+  trControl = trainControl(method = "cv", number = 10)
+)
+
+lm_predictions <- predict(lm_model, newdata = test_data)
+
+lm_mae <- mean(abs(lm_predictions - test_data$Price))
+lm_rmse <- sqrt(mean((lm_predictions - test_data$Price)^2))
+lm_r2 <- cor(test_data$Price, lm_predictions)^2
+
+cat("Linear Regression Results:\n")
+cat("  MAE:  $", round(lm_mae, 2), "\n")
+cat("  RMSE: $", round(lm_rmse, 2), "\n")
+cat("  R²:   ", round(lm_r2, 4), "\n")
+```
+
+## 5.3 Ridge Regression (Regularized)
+
+```{r ridge-regression}
+ridge_model <- train(
+  Price ~ Brand + Model + Year + Engine_Size + Fuel_Type + Transmission + Mileage + Doors + Owner_Count,
+  data = train_data,
+  method = "ridge",
+  trControl = trainControl(method = "cv", number = 10),
+  preProcess = c("center", "scale")
+)
+
+ridge_predictions <- predict(ridge_model, newdata = test_data)
+
+ridge_mae <- mean(abs(ridge_predictions - test_data$Price))
+ridge_rmse <- sqrt(mean((ridge_predictions - test_data$Price)^2))
+ridge_r2 <- cor(test_data$Price, ridge_predictions)^2
+
+cat("Ridge Regression Results:\n")
+cat("  MAE:  $", round(ridge_mae, 2), "\n")
+cat("  RMSE: $", round(ridge_rmse, 2), "\n")
+cat("  R²:   ", round(ridge_r2, 4), "\n")
+```
+
+## 5.4 Model Comparison
+
+```{r model-comparison}
+results <- data.frame(
+  Model = c("Linear Regression", "Ridge Regression"),
+  MAE = c(lm_mae, ridge_mae),
+  RMSE = c(lm_rmse, ridge_rmse),
+  R_Squared = c(lm_r2, ridge_r2)
+)
+
+results %>%
+  arrange(RMSE) %>%
+  knitr::kable(digits = 2, col.names = c("Model", "MAE ($)", "RMSE ($)", "R²"),
+               caption = "Model Performance Comparison")
+```
+
+## 5.5 Model Diagnostics
+
+```{r residual-analysis, fig.height=8}
+# Use the linear regression model for diagnostics
+residuals <- test_data$Price - lm_predictions
+
+p1 <- ggplot(data.frame(Predicted = lm_predictions, Actual = test_data$Price),
+             aes(x = Predicted, y = Actual)) +
+  geom_point(alpha = 0.3, color = "#2c3e50") +
+  geom_abline(slope = 1, intercept = 0, color = "#e74c3c", linetype = "dashed", size = 1) +
+  labs(title = "Predicted vs Actual Prices",
+       subtitle = "Points near the red line indicate accurate predictions",
+       x = "Predicted Price ($)", y = "Actual Price ($)") +
+  scale_x_continuous(labels = dollar) +
+  scale_y_continuous(labels = dollar) +
+  theme_minimal(base_size = 12)
+
+p2 <- ggplot(data.frame(Predicted = lm_predictions, Residual = residuals),
+             aes(x = Predicted, y = Residual)) +
+  geom_point(alpha = 0.3, color = "#2c3e50") +
+  geom_hline(yintercept = 0, color = "#e74c3c", linetype = "dashed") +
+  labs(title = "Residual Plot",
+       subtitle = "Residuals should be randomly scattered around zero",
+       x = "Predicted Price ($)", y = "Residual ($)") +
+  scale_x_continuous(labels = dollar) +
+  theme_minimal(base_size = 12)
+
+p3 <- ggplot(data.frame(Residual = residuals), aes(x = Residual)) +
+  geom_histogram(binwidth = 10, fill = "#3498db", alpha = 0.7, color = "white") +
+  geom_vline(xintercept = 0, color = "#e74c3c", linetype = "dashed") +
+  labs(title = "Distribution of Residuals",
+       subtitle = "Should be approximately normally distributed around zero",
+       x = "Residual ($)", y = "Count") +
+  theme_minimal(base_size = 12)
+
+p4 <- ggplot(data.frame(Residual = residuals), aes(sample = Residual)) +
+  stat_qq(alpha = 0.3, color = "#2c3e50") +
+  stat_qq_line(color = "#e74c3c") +
+  labs(title = "Q-Q Plot of Residuals",
+       subtitle = "Points following the line suggest normality",
+       x = "Theoretical Quantiles", y = "Sample Quantiles") +
+  theme_minimal(base_size = 12)
+
+grid.arrange(p1, p2, p3, p4, ncol = 2)
+```
+
+## 5.6 Feature Importance
+
+```{r feature-importance, fig.height=5}
+# Extract coefficients from the linear model (excluding individual model/brand levels)
+lm_coefs <- summary(lm_model$finalModel)$coefficients
+coef_df <- data.frame(
+  Feature = rownames(lm_coefs),
+  Estimate = lm_coefs[, "Estimate"],
+  Std_Error = lm_coefs[, "Std. Error"],
+  P_Value = lm_coefs[, "Pr(>|t|)"]
+)
+
+# Show the main numeric feature coefficients
+main_features <- coef_df %>%
+  filter(Feature %in% c("Year", "Engine_Size", "Mileage", "Doors", "Owner_Count")) %>%
+  mutate(Significant = ifelse(P_Value < 0.05, "Yes", "No"))
+
+ggplot(main_features, aes(x = reorder(Feature, abs(Estimate)), y = Estimate, fill = Significant)) +
+  geom_col(alpha = 0.8) +
+  coord_flip() +
+  labs(title = "Linear Model Coefficients (Numeric Features)",
+       subtitle = "Impact of each feature on predicted price",
+       x = "Feature", y = "Coefficient Estimate ($)") +
+  scale_fill_manual(values = c("Yes" = "#27ae60", "No" = "#95a5a6")) +
+  theme_minimal(base_size = 13)
+```
+
+# 6. Save Final Model
+
+```{r save-model}
+# Save the best-performing model
+saveRDS(lm_model, "car_price_model.rds")
+cat("Model saved to car_price_model.rds\n")
+```
+
+# 7. Key Findings & Conclusions
+
+1. **Price Drivers**: Manufacturing year, engine size, fuel type, and mileage are the
+   strongest predictors of used car prices.
+
+2. **Fuel Type Premium**: Electric and Hybrid vehicles command a price premium over
+   traditional Diesel and Petrol vehicles, reflecting market trends toward green vehicles.
+
+3. **Depreciation**: Each additional year of age reduces car value, while every additional
+   kilometer of mileage decreases value — consistent with real-world depreciation patterns.
+
+4. **Transmission Effect**: Automatic transmission vehicles are priced higher on average
+   than Manual and Semi-Automatic options.
+
+5. **Model Performance**: The linear regression model achieves strong performance metrics,
+   indicating the selected features capture the key pricing dynamics in this dataset.
+
+6. **Note on R² values**: The very high R² values observed suggest this dataset may have
+   a synthetic or highly structured component. In production use, real-world data would
+   likely show more noise and lower R² values (typically 0.75-0.90 for car pricing models).
+
+---
+
+*Analysis performed using R with tidyverse, caret, and corrplot packages.*
