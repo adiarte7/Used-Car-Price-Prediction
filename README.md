@@ -2,7 +2,7 @@
 
 A machine learning project that analyzes 10,000 used car listings and provides an interactive web application to predict car prices based on vehicle attributes.
 
-**Live Demo:** [aditya-arte.shinyapps.io/submission](https://aditya-arte.shinyapps.io/submission/)
+**Live Demo:** https://aditya-arte.shinyapps.io/car-price-predictor/
 
 ---
 
